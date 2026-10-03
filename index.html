@@ -89,6 +89,12 @@ input[type=color]{width:100%;height:38px;border:1px solid var(--bd);border-radiu
 #ac .btn{background:#fff;color:#111;border-color:#fff;padding:12px;width:100%;margin-top:14px}
 #ac .btn.x{width:auto;margin:0;padding:8px;background:#ffffff1a;color:#fff;border-color:#ffffff30;flex:0 0 auto}
 #ac .hint{color:#ffffff80}.aerr{color:#fca5a5;font-size:13px;min-height:18px;margin-top:10px}
+#ac .authsep{display:flex;align-items:center;gap:10px;color:#ffffff66;font-size:11px;margin:14px 0}
+#ac .authsep::before,#ac .authsep::after{content:"";height:1px;flex:1;background:#ffffff22}
+#ac .googlebtn{background:#ffffff0d;color:#fff;border-color:#ffffff30;margin-top:0}
+#ac .googlebtn:hover{background:#ffffff18}
+#ac .verifybox{display:none;margin-top:12px;padding:10px 12px;border:1px solid #ffffff20;border-radius:10px;background:#ffffff0a;color:#ffffffb0;font-size:12px}
+
 #vp.app{max-width:390px;height:min(820px,calc(100vh - 90px));border:10px solid #16161a;border-radius:46px;display:flex;flex-direction:column;box-shadow:0 30px 80px #0006}
 #vp.app #site{flex:1;min-height:0;overflow:auto}
 .abar{position:sticky;top:0;z-index:3;display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:var(--sbg);border-bottom:1px solid #8882;font-weight:700}
@@ -127,7 +133,61 @@ h1,h2,h3{margin:0;line-height:1.1}h1{font-size:clamp(34px,6cqw,62px);letter-spac
 .ab{display:grid;grid-template-columns:1fr 2fr;gap:40px}.ab p{font-size:17px;opacity:.85;margin:0}
 @container (max-width:700px){.g3,.hero.s .in,.ab{grid-template-columns:1fr}.nav nav{display:none}.sec{padding:56px 22px}.nav{padding:14px 22px}}
 @media (max-width:820px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}#side{max-height:44vh;border-right:0;border-bottom:1px solid var(--bd)}#stage{padding:10px}#wc{padding:22px}}
-</style><script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script></head><body>
+</style>
+<script>
+/*
+  FORMA AUTH / PREVIEW ISOLATION
+  - ChatGPT/embedded previews do NOT load Firebase or JSZip.
+  - A normal top-level hosted Forma page may load Firebase for real auth.
+  - This keeps the preview lightweight while preserving production auth.
+*/
+window.FORMA_IS_EMBEDDED = (() => {
+  try { return window.top !== window.self; } catch (e) { return true; }
+})();
+window.FORMA_FIREBASE_CONFIG = {
+  apiKey: "PASTE_YOUR_FIREBASE_API_KEY",
+  authDomain: "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "PASTE_YOUR_PROJECT_ID",
+  storageBucket: "PASTE_YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID",
+  appId: "PASTE_YOUR_FIREBASE_APP_ID"
+};
+window.FORMA_FIREBASE_READY = false;
+window.FORMA_FIREBASE_PROMISE = Promise.resolve(false);
+window.FORMA_JSZIP_PROMISE = Promise.resolve(false);
+
+(function(){
+  const cfg = window.FORMA_FIREBASE_CONFIG;
+  const configured = cfg && !Object.values(cfg).some(v => String(v).includes("PASTE_YOUR_"));
+  const load = (src) => new Promise((resolve,reject) => {
+    const s=document.createElement('script');
+    s.src=src; s.async=true;
+    s.onload=()=>resolve(true);
+    s.onerror=()=>reject(new Error('Could not load '+src));
+    document.head.appendChild(s);
+  });
+
+  // Never load external auth SDKs inside an embedded preview.
+  if (!window.FORMA_IS_EMBEDDED && configured) {
+    window.FORMA_FIREBASE_PROMISE = load('https://www.gstatic.com/firebasejs/12.19.0/firebase-app-compat.js')
+      .then(()=>load('https://www.gstatic.com/firebasejs/12.19.0/firebase-auth-compat.js'))
+      .then(()=>{
+        firebase.initializeApp(cfg);
+        window.formaAuth=firebase.auth();
+        window.FORMA_FIREBASE_READY=true;
+        return true;
+      })
+      .catch(err=>{ console.warn('Forma Firebase unavailable:',err); return false; });
+  }
+
+  // JSZip is also lazy-loaded and never requested by the embedded preview.
+  window.FORMA_JSZIP_PROMISE = Promise.resolve().then(()=>{
+    if(window.FORMA_IS_EMBEDDED) return false;
+    return load('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js')
+      .then(()=>true).catch(err=>{ console.warn('Forma ZIP tool unavailable:',err); return false; });
+  });
+})();
+</script></head><body>
 <div id="auth"><div id="ac"></div></div><div id="dl"><div id="dc"></div></div><div id="toast"></div><div id="home"></div><div id="wiz" class="out" style="display:none"><div id="wc"></div></div>
 <div id="app">
 <aside id="side">
@@ -293,38 +353,212 @@ $('#nw').onclick=openWiz;
 $('#dk').onclick=()=>{$('#vp').classList.remove('m');$('#dk').classList.add('on');$('#mb').classList.remove('on')};
 $('#mb').onclick=()=>{$('#vp').classList.add('m');$('#mb').classList.add('on');$('#dk').classList.remove('on')};
 const mem={},st={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(x){return mem[k]===undefined?null:mem[k]}},set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(x){}}};
-const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
-async function hashPw(pw,salt){const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);return hex(await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:100000,hash:'SHA-256'},k,256))}
-let me=st.get('forma-session'),pending=null,am='up';
-const users=()=>st.get('forma-users')||{};
-const authed=()=>!!(me&&users()[me]);
-function acct(){const u=authed()?users()[me]:null;if(!u)me=null;
- $('#hacc').innerHTML=u?'<span class="btn" style="cursor:default">'+ic('user',16)+e(u.name)+'</span><button class="btn" data-lo="1">Log out</button>':'<button class="btn" data-au="in">Log in</button><button class="btn go" data-au="up">Sign up</button>';
- $('#ub').innerHTML=ic('user',16)+'Log out';$('#ub').title=u?'Signed in as '+u.name:''}
-function requireAuth(f){if(authed())f();else{pending=f;openAuth('up')}}
-function openAuth(m){am=m;const up=m==='up';
- $('#ac').innerHTML='<div class="row" style="justify-content:space-between"><h2>'+(up?'Create your account':'Welcome back')+'</h2><button class="btn x" data-ax="1" aria-label="Close">'+ic('x',16)+'</button></div><p class="wsub">'+(up?'Sign up to start building websites and apps with Forma.':'Log in to keep building.')+'</p>'
-  +'<div class="seg"><button class="'+(up?'on':'')+'" data-am="up">Sign up</button><button class="'+(up?'':'on')+'" data-am="in">Log in</button></div>'
-  +(up?'<label>Name</label><input type="text" id="an" autocomplete="name">':'')
-  +'<label>Email</label><input type="text" id="ae" autocomplete="email" inputmode="email"><label>Password</label><input type="password" id="ap" autocomplete="'+(up?'new-password':'current-password')+'" placeholder="'+(up?'At least 8 characters':'')+'">'
-  +'<div class="aerr" id="aerr" role="alert"></div><button class="btn" data-sub="1">'+(up?'Create account':'Log in')+'</button><p class="hint">Demo sign-in: accounts are stored only in this browser. Please do not reuse a real password.</p>';
- $('#auth').style.display='grid';setTimeout(()=>{const f=$('#an')||$('#ae');f&&f.focus()},50)}
-function closeAuth(cancel){$('#auth').style.display='none';if(cancel)pending=null}
-async function submit(){const up=am==='up',em=$('#ae').value.trim().toLowerCase(),pw=$('#ap').value,nm=up?$('#an').value.trim():'',er=$('#aerr'),fail=m=>{er.textContent=m};
- er.textContent='';
- if(up&&!nm)return fail('Please enter your name.');
- if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em))return fail('Enter a valid email address.');
- if(pw.length<8)return fail(up?'Use at least 8 characters for your password.':'Enter your password.');
- if(!(window.crypto&&crypto.subtle))return fail('Secure sign-in is not available in this browser.');
- const U=users();let u;
- if(up){if(U[em])return fail('An account with this email already exists. Try logging in.');const salt=hex(crypto.getRandomValues(new Uint8Array(16)));u=U[em]={name:nm,salt,hash:await hashPw(pw,salt)};st.set('forma-users',U)}
- else{u=U[em];if(!u||await hashPw(pw,u.salt)!==u.hash)return fail('Incorrect email or password.')}
- me=em;st.set('forma-session',em);acct();closeAuth();toast((up?'Welcome to Forma, ':'Welcome back, ')+u.name.split(' ')[0]);const f=pending;pending=null;if(f)f()}
-function logout(){me=null;st.set('forma-session',null);S={mode:'site',name:'',logo:'sparkles',theme:{},sections:[],sel:-1};timer.forEach(clearTimeout);setMode();draw();$('#ttl').textContent='Preview';acct();goHome();toast('Logged out')}
-$('#ac').addEventListener('click',ev=>{const t=ev.target,s=t.closest('[data-am]');if(s){openAuth(s.dataset.am);return}if(t.closest('[data-ax]')){closeAuth(true);return}if(t.closest('[data-sub]'))submit()});
+
+let me=st.get('forma-session'),pending=null,am='up',firebaseUser=null,authBusy=false;
+
+const firebaseReady=()=>!!(window.FORMA_FIREBASE_READY&&window.formaAuth);
+window.FORMA_FIREBASE_PROMISE.then(()=>{ if(firebaseReady()){ acct(); } });
+const localUsers=()=>st.get('forma-users')||{};
+const authed=()=>firebaseReady()?!!firebaseUser:!!(me&&localUsers()[me]);
+
+function authName(){
+  if(firebaseReady()&&firebaseUser)return firebaseUser.displayName||firebaseUser.email?.split('@')[0]||'User';
+  const u=me&&localUsers()[me];
+  return u?.name||'User';
+}
+
+function acct(){
+  const signed=authed(),name=authName();
+  $('#hacc').innerHTML=signed
+    ? '<span class="btn" style="cursor:default">'+ic('user',16)+e(name)+'</span><button class="btn" data-lo="1">Log out</button>'
+    : '<button class="btn" data-au="in">Log in</button><button class="btn go" data-au="up">Sign up</button>';
+  $('#ub').innerHTML=ic('user',16)+'Log out';
+  $('#ub').title=signed?'Signed in as '+name:'';
+}
+
+function requireAuth(f){
+  if(authed())f();
+  else{pending=f;openAuth('up')}
+}
+
+function authError(err){
+  const code=err&&err.code||'';
+  const map={
+    'auth/email-already-in-use':'That email is already registered. Try logging in.',
+    'auth/invalid-email':'Enter a valid email address.',
+    'auth/weak-password':'Use a stronger password (at least 8 characters).',
+    'auth/invalid-credential':'Incorrect email or password.',
+    'auth/user-not-found':'No account was found with that email.',
+    'auth/wrong-password':'Incorrect email or password.',
+    'auth/popup-closed-by-user':'Google sign-in was cancelled.',
+    'auth/popup-blocked':'Your browser blocked the Google sign-in popup. Allow popups for Forma and try again.',
+    'auth/operation-not-allowed':'This sign-in method is not enabled in Firebase yet.',
+    'auth/unauthorized-domain':'This website domain is not authorized in Firebase Authentication.',
+    'auth/network-request-failed':'Network error. Check your connection and try again.',
+    'auth/too-many-requests':'Too many attempts. Wait a little and try again.'
+  };
+  return map[code]||err?.message||'Authentication failed. Please try again.';
+}
+
+function openAuth(m){
+  am=m;
+  const up=m==='up';
+  const configured=firebaseReady();
+  $('#ac').innerHTML=
+    '<div class="row" style="justify-content:space-between"><h2>'+(up?'Create your account':'Welcome back')+'</h2><button class="btn x" data-ax="1" aria-label="Close">'+ic('x',16)+'</button></div>'+
+    '<p class="wsub">'+(up?'Sign up to start building websites and apps with Forma.':'Log in to keep building.')+'</p>'+
+    '<div class="seg"><button class="'+(up?'on':'')+'" data-am="up">Sign up</button><button class="'+(up?'':'on')+'" data-am="in">Log in</button></div>'+
+    (up?'<label>Name</label><input type="text" id="an" autocomplete="name">':'')+
+    '<label>Email</label><input type="email" id="ae" autocomplete="email" inputmode="email">'+
+    '<label>Password</label><input type="password" id="ap" autocomplete="'+(up?'new-password':'current-password')+'" placeholder="'+(up?'At least 8 characters':'')+'">'+
+    '<div class="aerr" id="aerr" role="alert"></div>'+
+    '<button class="btn" data-sub="1">'+(up?'Create account':'Log in')+'</button>'+
+    (configured
+      ? '<div class="authsep">OR</div><button class="btn googlebtn" data-google="1">'+ic('user',17)+'Continue with Google</button>'+
+        '<div class="verifybox" id="verifybox"></div>'+
+        '<p class="hint">Your email will be verified by a Firebase verification email. Google accounts are verified by Google.</p>'
+      : '<p class="hint">Preview-safe demo mode: real authentication is disabled inside embedded previews. Host Forma normally to use Firebase accounts.</p>');
+
+  $('#auth').style.display='grid';
+  setTimeout(()=>{const f=$('#an')||$('#ae');f&&f.focus()},50);
+}
+
+function closeAuth(cancel){
+  $('#auth').style.display='none';
+  if(cancel)pending=null;
+}
+
+async function localSubmit(up,em,pw,nm,fail){
+  if(!(window.crypto&&crypto.subtle))return fail('Secure sign-in is not available in this browser.');
+  const U=localUsers();let u;
+  try{
+    if(up){
+      if(U[em])return fail('An account with this email already exists. Try logging in.');
+      const salt=[...crypto.getRandomValues(new Uint8Array(16))].map(x=>x.toString(16).padStart(2,'0')).join('');
+      const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
+      const hash=[...new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:100000,hash:'SHA-256'},k,256))].map(x=>x.toString(16).padStart(2,'0')).join('');
+      u=U[em]={name:nm,salt,hash};st.set('forma-users',U);
+    }else{
+      u=U[em];
+      if(!u)return fail('No account was found with that email.');
+      const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
+      const hash=[...new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(u.salt),iterations:100000,hash:'SHA-256'},k,256))].map(x=>x.toString(16).padStart(2,'0')).join('');
+      if(hash!==u.hash)return fail('Incorrect email or password.');
+    }
+  }catch(err){return fail('Could not complete sign-in. Please try again.')}
+  me=em;st.set('forma-session',em);acct();closeAuth();
+  toast((up?'Welcome to Forma, ':'Welcome back, ')+u.name.split(' ')[0]);
+  const f=pending;pending=null;if(f)f();
+}
+
+async function submit(){
+  if(authBusy)return;
+  const up=am==='up',
+    em=$('#ae')?.value.trim().toLowerCase()||'',
+    pw=$('#ap')?.value||'',
+    nm=up?($('#an')?.value.trim()||''):'',
+    er=$('#aerr'),
+    fail=m=>{if(er)er.textContent=m};
+
+  if(er)er.textContent='';
+  if(up&&!nm)return fail('Please enter your name.');
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em))return fail('Enter a valid email address.');
+  if(pw.length<8)return fail(up?'Use at least 8 characters for your password.':'Enter your password.');
+
+  authBusy=true;
+  const btn=$('#ac [data-sub]');
+  if(btn){btn.disabled=true;btn.textContent=up?'Creating account...':'Logging in...'}
+
+  try{
+    if(!firebaseReady())return await localSubmit(up,em,pw,nm,fail);
+
+    if(up){
+      const cred=await formaAuth.createUserWithEmailAndPassword(em,pw);
+      if(nm)await cred.user.updateProfile({displayName:nm});
+      try{await cred.user.sendEmailVerification()}catch(x){console.warn('Verification email failed:',x)}
+      firebaseUser=cred.user;
+      me=cred.user.uid;st.set('forma-session',me);
+      acct();
+      closeAuth();
+      toast('Account created. Check your email to verify it.');
+    }else{
+      const cred=await formaAuth.signInWithEmailAndPassword(em,pw);
+      firebaseUser=cred.user;
+      me=cred.user.uid;st.set('forma-session',me);
+      if(!cred.user.emailVerified){
+        await cred.user.sendEmailVerification().catch(()=>{});
+        if(er)er.textContent='Your email is not verified yet. We sent another verification email.';
+        const vb=$('#verifybox');
+        if(vb){vb.style.display='block';vb.textContent='Check your inbox for the Firebase verification email, then log in again.'}
+        await formaAuth.signOut();
+        firebaseUser=null;me=null;st.set('forma-session',null);
+        return;
+      }
+      acct();closeAuth();toast('Welcome back, '+(cred.user.displayName||em.split('@')[0])+'!');
+    }
+    const f=pending;pending=null;if(f)f();
+  }catch(err){
+    fail(authError(err));
+  }finally{
+    authBusy=false;
+    const b=$('#ac [data-sub]');
+    if(b){b.disabled=false;b.textContent=up?'Create account':'Log in'}
+  }
+}
+
+async function googleSignIn(){
+  if(authBusy)return;
+  const er=$('#aerr'),fail=m=>{if(er)er.textContent=m};
+  if(!firebaseReady())return fail(window.FORMA_IS_EMBEDDED?'Google sign-in is disabled in the embedded preview. Host Forma normally to use Google sign-in.':'Firebase is still loading. Please try again in a moment.');
+  authBusy=true;
+  const b=$('#ac [data-google]');
+  if(b){b.disabled=true;b.textContent='Connecting to Google...'}
+  try{
+    const provider=new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({prompt:'select_account'});
+    const result=await formaAuth.signInWithPopup(provider);
+    firebaseUser=result.user;
+    me=result.user.uid;st.set('forma-session',me);
+    acct();closeAuth();
+    toast('Welcome to Forma, '+(result.user.displayName||result.user.email?.split('@')[0]||'there')+'!');
+    const f=pending;pending=null;if(f)f();
+  }catch(err){
+    fail(authError(err));
+  }finally{
+    authBusy=false;
+    const x=$('#ac [data-google]');
+    if(x){x.disabled=false;x.innerHTML=ic('user',17)+'Continue with Google'}
+  }
+}
+
+async function logout(){
+  try{if(firebaseReady())await formaAuth.signOut()}catch(err){console.warn('Sign-out failed:',err)}
+  firebaseUser=null;me=null;st.set('forma-session',null);
+  S={mode:'site',name:'',logo:'sparkles',theme:{},sections:[],sel:-1};
+  timer.forEach(clearTimeout);setMode();draw();$('#ttl').textContent='Preview';acct();goHome();toast('Logged out');
+}
+
+if(firebaseReady()){
+  formaAuth.onAuthStateChanged(user=>{
+    firebaseUser=user||null;
+    me=user?user.uid:null;
+    if(user)st.set('forma-session',user.uid);else st.set('forma-session',null);
+    acct();
+  });
+}
+
+$('#ac').addEventListener('click',ev=>{
+  const t=ev.target,
+    s=t.closest('[data-am]');
+  if(s){openAuth(s.dataset.am);return}
+  if(t.closest('[data-ax]')){closeAuth(true);return}
+  if(t.closest('[data-sub]')){submit();return}
+  if(t.closest('[data-google]')){googleSignIn();return}
+});
 $('#ac').addEventListener('keydown',ev=>{if(ev.key==='Enter')submit()});
 $('#auth').addEventListener('click',ev=>{if(ev.target.id==='auth')closeAuth(true)});
 $('#ub').onclick=logout;
+
 function toast(m){const x=$('#toast');x.textContent=m;x.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>x.classList.remove('on'),3400)}
 function chip(){$('#pl').innerHTML=ic('star',16)+PLANS[RANK[plan]].n+' plan'}
 function setPlan(p){plan=p;try{localStorage.setItem('forma-plan',p)}catch(x){}$('#pricing').outerHTML=pricing();chip();toast('Plan set to '+PLANS[RANK[p]].n+' (demo: no payment taken)')}
@@ -354,7 +588,7 @@ async function dlSave(name,data){const d=window.claude&&await window.claude.use(
 async function runDl(kind){
  const P=pack(),T=S.theme;
  if(kind==='html')return dlSave(slug()+'.html',doc(P,{badge:RANK[plan]<1}));
- if(!window.JSZip){toast('ZIP tool failed to load. Try again.');return}
+ if(!window.JSZip){const ok=await window.FORMA_JSZIP_PROMISE;if(!ok||!window.JSZip){toast('ZIP downloads are unavailable in the preview. Run Forma as a normal hosted page to use ZIP downloads.');return}}
  const pro=kind==='pro',files={'index.html':doc(P,{link:1,icon:pro,seo:pro&&!P.app,pwa:pro&&P.app}),'styles.css':P.base+P.css,
   'README.txt':'Built with Forma.\n\nOpen index.html to preview. To publish, upload every file in this folder to any static host (Netlify, Vercel, Cloudflare Pages, GitHub Pages).'+(pro&&P.app?'\n\nThis is an installable web app (PWA). It must be served over HTTPS to be installable.':'')+'\n'};
  if(pro){files['icon.svg']='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="'+T.p+'"/><stop offset="1" stop-color="'+T.a+'"/></linearGradient></defs><rect width="512" height="512" rx="112" fill="url(#g)"/><text x="256" y="340" font-size="260" font-weight="700" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif">'+e((S.name[0]||'F').toUpperCase())+'</text></svg>';
